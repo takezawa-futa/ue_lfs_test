@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include "GitSourceControlChangelist.h"
 #include "ISourceControlProvider.h"
 #include "Misc/IQueuedWork.h"
 
@@ -116,9 +115,6 @@ public:
 
 	/** Files to perform this operation on */
 	TArray<FString> Files;
-
-	/** Changelist to perform this operation on */
-	FGitSourceControlChangelist Changelist;
 
 	/** Potential error, warning and info message storage */
 	FGitSourceControlResultInfo ResultInfo;

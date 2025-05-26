@@ -15,12 +15,10 @@
 #include "GitSourceControlUtils.h"
 #include "SGitSourceControlSettings.h"
 #include "GitSourceControlRunner.h"
-#include "GitSourceControlChangelistState.h"
 #include "Logging/MessageLog.h"
 #include "ScopedSourceControlProgress.h"
 #include "SourceControlHelpers.h"
 #include "SourceControlOperations.h"
-#include "AssetRegistry/AssetRegistryModule.h"
 #include "Async/Async.h"
 #include "GenericPlatform/GenericPlatformFile.h"
 #include "HAL/FileManager.h"
@@ -28,7 +26,6 @@
 #include "Misc/App.h"
 #include "Misc/EngineVersion.h"
 #include "Misc/MessageDialog.h"
-#include "UObject/ObjectSaveContext.h"
 
 #define LOCTEXT_NAMESPACE "GitSourceControl"
 
@@ -47,11 +44,6 @@ void FGitSourceControlProvider::Init(bool bForceConnection)
 
 		CheckGitAvailability();
 	}
-
-	UPackage::PackageSavedWithContextEvent.AddStatic(&GitSourceControlUtils::UpdateFileStagingOnSaved);
-	
-	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
-	AssetRegistryModule.Get().OnAssetRenamed().AddStatic(&GitSourceControlUtils::UpdateStateOnAssetRename);	
 
 	// bForceConnection: not used anymore
 }
@@ -105,8 +97,6 @@ void FGitSourceControlProvider::CheckRepositoryStatus()
 		bGitRepositoryFound = false;
 		return;
 	}
-	PathToRepositoryRoot = PathToGitRoot;
-
 	if (!GitSourceControlUtils::CheckGitAvailability(PathToGitBinary, &GitVersion))
 	{
 		UE_LOG(LogSourceControl, Error, TEXT("Failed to find valid Git executable."));
@@ -262,23 +252,6 @@ TSharedRef<FGitSourceControlState, ESPMode::ThreadSafe> FGitSourceControlProvide
 	}
 }
 
-TSharedRef<FGitSourceControlChangelistState, ESPMode::ThreadSafe> FGitSourceControlProvider::GetStateInternal(const FGitSourceControlChangelist& InChangelist)
-{
-	TSharedRef<FGitSourceControlChangelistState, ESPMode::ThreadSafe>* State = ChangelistsStateCache.Find(InChangelist);
-	if (State != NULL)
-	{
-		// found cached item
-		return (*State);
-	}
-	else
-	{
-		// cache an unknown state for this item
-		TSharedRef<FGitSourceControlChangelistState, ESPMode::ThreadSafe> NewState = MakeShared<FGitSourceControlChangelistState>(InChangelist);
-		ChangelistsStateCache.Add(InChangelist, NewState);
-		return NewState;
-	}
-}
-
 FText FGitSourceControlProvider::GetStatusText() const
 {
 	FFormatNamedArguments Args;
@@ -361,17 +334,7 @@ ECommandResult::Type FGitSourceControlProvider::GetState( const TArray<FString>&
 #if ENGINE_MAJOR_VERSION >= 5
 ECommandResult::Type FGitSourceControlProvider::GetState(const TArray<FSourceControlChangelistRef>& InChangelists, TArray<FSourceControlChangelistStateRef>& OutState, EStateCacheUsage::Type InStateCacheUsage)
 {
-	if (!IsEnabled())
-	{
-		return ECommandResult::Failed;
-	}
-
-	for (FSourceControlChangelistRef Changelist : InChangelists)
-	{
-		FGitSourceControlChangelistRef GitChangelist = StaticCastSharedRef<FGitSourceControlChangelist>(Changelist);
-		OutState.Add(GetStateInternal(GitChangelist.Get()));
-	}
-	return ECommandResult::Succeeded;
+    return ECommandResult::Failed;
 }
 #endif
 
@@ -461,9 +424,6 @@ ECommandResult::Type FGitSourceControlProvider::Execute( const FSourceControlOpe
 	Command->UpdateRepositoryRootIfSubmodule(AbsoluteFiles);
 	Command->OperationCompleteDelegate = InOperationCompleteDelegate;
 
-	TSharedPtr<FGitSourceControlChangelist, ESPMode::ThreadSafe> ChangelistPtr = StaticCastSharedPtr<FGitSourceControlChangelist>(InChangelist);
-	Command->Changelist = ChangelistPtr ? ChangelistPtr.ToSharedRef().Get() : FGitSourceControlChangelist();
-	
 	// fire off operation
 	if(InConcurrency == EConcurrency::Synchronous)
 	{
@@ -533,7 +493,7 @@ bool FGitSourceControlProvider::UsesLocalReadOnlyState() const
 
 bool FGitSourceControlProvider::UsesChangelists() const
 {
-	return true;
+	return false;
 }
 
 bool FGitSourceControlProvider::UsesCheckout() const
@@ -715,14 +675,7 @@ TArray< TSharedRef<ISourceControlLabel> > FGitSourceControlProvider::GetLabels( 
 #if ENGINE_MAJOR_VERSION >= 5
 TArray<FSourceControlChangelistRef> FGitSourceControlProvider::GetChangelists( EStateCacheUsage::Type InStateCacheUsage )
 {
-	if (!IsEnabled())
-	{
-		return TArray<FSourceControlChangelistRef>();
-	}
-	
-	TArray<FSourceControlChangelistRef> Changelists;
-	Algo::Transform(ChangelistsStateCache, Changelists, [](const auto& Pair) { return MakeShared<FGitSourceControlChangelist, ESPMode::ThreadSafe>(Pair.Key); });
-	return Changelists;
+    return TArray<FSourceControlChangelistRef>();
 }
 #endif
 
